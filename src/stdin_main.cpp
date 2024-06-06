@@ -22,8 +22,8 @@
 using namespace yznal::trace_collector;
 
 void print_stack(std::string&& line) {
-    sample_info info = parse_line(line);
-    for (auto& frame : info.st.stack) {
+    stacktrace info = parse_line(line);
+    for (auto& frame : info.stack) {
         std::cout << frame << '\n';
     }
     std::cout << "Stack occurance: " << info.count << "\n\n";
@@ -35,14 +35,14 @@ std::map<int64_t, stack_trie> per_thread_trie;
 std::map<int64_t, std::string> t_names;
 
 void save_stack(std::string&& line) {
-    sample_info info = parse_line(line, true);
+    stacktrace info = parse_line(line, true);
     trie.add_stacktrace(info);
-    if (!per_thread_trie.contains(info.st.t_id)) {
-        auto res = per_thread_trie.insert(std::make_pair(info.st.t_id, stack_trie(dict)));
+    if (!per_thread_trie.contains(info.t_id)) {
+        auto res = per_thread_trie.insert(std::make_pair(info.t_id, stack_trie(dict)));
         res.first->second.add_stacktrace(info);
-        t_names[info.st.t_id] = info.st.t_name;
+        t_names[info.t_id] = info.t_name;
     } else {
-        per_thread_trie[info.st.t_id].add_stacktrace(info);
+        per_thread_trie[info.t_id].add_stacktrace(info);
     }
 }
 

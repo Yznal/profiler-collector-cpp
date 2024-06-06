@@ -29,31 +29,37 @@ namespace yznal::trace_collector {
 
     stack_trie::stack_trie() : dict_(new method_dict()) {
         method_id root = dict_->encode(ROOT);
-        nodes_.emplace_back(root, 0);
+        create_node(root, 0, 0);
     }
 
     stack_trie::stack_trie(std::shared_ptr<method_dict> ext_dict) : dict_(ext_dict) {
         method_id root = dict_->encode(ROOT);
-        nodes_.emplace_back(root, 0);
+        create_node(root, 0, 0);
     }
 
-    void stack_trie::add_stacktrace(const sample_info& trace_sample, int offset) {
-        node* curr_node = &nodes_[0];
-        const std::vector<std::string> frames = trace_sample.st.stack;
-        curr_node->sample_count += trace_sample.count;
+    uint32_t stack_trie::create_node(method_id m_id, node_id parent, uint64_t cnt) {
+        size_t node_id = nodes_.size();
+        nodes_.emplace_back(m_id, parent, cnt);
+        return static_cast<uint32_t>(node_id);
+    }
+
+    void stack_trie::add_stacktrace(const stacktrace& trace_sample, int offset) {
+        node_id cur_node_id = 0;
+        const std::vector<std::string> frames = trace_sample.stack;
+        nodes_[cur_node_id].sample_count += trace_sample.count;
 
         for (size_t f = offset; f < frames.size(); f++) {
             method_id m_id = dict_->encode(frames[f]);
-            auto map_node = curr_node->children_.insert(std::make_pair(m_id, 0));
+            auto map_node = nodes_[cur_node_id].children_.insert(std::make_pair(m_id, 0));
 
             if (map_node.second) {
-                uint32_t new_node_id = create_node(m_id, trace_sample.count);
+                node_id new_node_id = create_node(m_id, cur_node_id, trace_sample.count);
                 map_node.first->second = new_node_id;
-                curr_node = &nodes_[new_node_id];
+                cur_node_id = new_node_id;
             } else {
-                uint32_t existing_node_id = map_node.first->second;
+                node_id existing_node_id = map_node.first->second;
                 nodes_[existing_node_id].sample_count += trace_sample.count;
-                curr_node = &nodes_[existing_node_id];
+                cur_node_id =existing_node_id;
             }
         }
     }
@@ -74,7 +80,7 @@ namespace yznal::trace_collector {
             level_size--;
 
             const node& node = nodes_[node_id];
-            std::cout << "[" << dict_->decode(node.current_method) << "," << node.sample_count << "]";
+            std::cout << "[" << dict_->decode(node.current_method) << "," << node.sample_count << "/" << nodes_[node.parent].sample_count << "]";
             for (const auto& [k, v] : node.children_) {
                 bfs.push(v);
             }

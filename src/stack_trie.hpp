@@ -34,10 +34,11 @@ namespace yznal::trace_collector {
 
         struct node {
 
-            node(method_id m_id, uint64_t cnt = 0) : current_method(m_id), sample_count(cnt) {
+            node(method_id m_id, node_id parent = 0, uint64_t cnt = 0) : parent(parent), current_method(m_id), sample_count(cnt) {
             }
 
             std::map<method_id, node_id> children_;
+            node_id parent;
             method_id current_method; 
             uint64_t sample_count;
         };
@@ -48,19 +49,16 @@ namespace yznal::trace_collector {
         stack_trie();
         explicit stack_trie(std::shared_ptr<method_dict>);
 
-        void add_stacktrace(const sample_info& trace_sample, int offset = 0);
+        void add_stacktrace(const stacktrace& trace_sample, int offset = 0);
         const method_dict& get_dictionary() const;
+
         void print_debug() const;
 
     private:
         std::shared_ptr<method_dict> dict_;
         std::vector<node> nodes_;
 
-        uint32_t create_node(method_id m_id, uint64_t cnt) {
-            size_t node_id = nodes_.size();
-            nodes_.emplace_back(m_id, cnt);
-            return static_cast<uint32_t>(node_id);
-        }
+        uint32_t create_node(method_id m_id,  node_id parent, uint64_t cnt);
 
     };
 
