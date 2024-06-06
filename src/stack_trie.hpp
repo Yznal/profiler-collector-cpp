@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <map>
 #include <unordered_map>
+#include <memory>
 
 
 namespace yznal::trace_collector {
@@ -45,15 +46,14 @@ namespace yznal::trace_collector {
     public:
 
         stack_trie();
+        explicit stack_trie(std::shared_ptr<method_dict>);
 
         void add_stacktrace(const sample_info& trace_sample, int offset = 0);
-
         const method_dict& get_dictionary() const;
-
         void print_debug() const;
 
     private:
-        method_dict dict_;
+        std::shared_ptr<method_dict> dict_;
         std::vector<node> nodes_;
 
         uint32_t create_node(method_id m_id, uint64_t cnt) {

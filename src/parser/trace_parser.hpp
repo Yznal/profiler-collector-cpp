@@ -9,6 +9,8 @@ namespace yznal::trace_collector {
 
     struct stacktrace {
         std::vector<std::string> stack;
+        int64_t t_id = -1;
+        std::string t_name;
     };
 
     struct sample_info {
@@ -16,6 +18,6 @@ namespace yznal::trace_collector {
         size_t count;
     };
 
-    sample_info parse_line(const char* line);
+    sample_info parse_line(const std::string& line, bool threaded = false);
 
 }

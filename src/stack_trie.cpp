@@ -12,7 +12,6 @@ namespace yznal::trace_collector {
             int id = reverse_map_.size();
             reverse_map_.push_back(method_name);
             node.first->second = id;
-            std::cerr << "(" << method_name << " -> " << id << ")\n";
             return id;
         } else {
             return node.first->second;
@@ -23,20 +22,28 @@ namespace yznal::trace_collector {
         return reverse_map_[id];
     }
 
-    stack_trie::stack_trie() {
-        method_id root = dict_.encode(ROOT);
+}
+
+
+namespace yznal::trace_collector {
+
+    stack_trie::stack_trie() : dict_(new method_dict()) {
+        method_id root = dict_->encode(ROOT);
+        nodes_.emplace_back(root, 0);
+    }
+
+    stack_trie::stack_trie(std::shared_ptr<method_dict> ext_dict) : dict_(ext_dict) {
+        method_id root = dict_->encode(ROOT);
         nodes_.emplace_back(root, 0);
     }
 
     void stack_trie::add_stacktrace(const sample_info& trace_sample, int offset) {
-        static int cnt = 1;
-        std::cerr << cnt++ << "new st\n";
         node* curr_node = &nodes_[0];
         const std::vector<std::string> frames = trace_sample.st.stack;
         curr_node->sample_count += trace_sample.count;
 
         for (size_t f = offset; f < frames.size(); f++) {
-            method_id m_id = dict_.encode(frames[f]);
+            method_id m_id = dict_->encode(frames[f]);
             auto map_node = curr_node->children_.insert(std::make_pair(m_id, 0));
 
             if (map_node.second) {
@@ -52,7 +59,7 @@ namespace yznal::trace_collector {
     }
 
     const method_dict& stack_trie::get_dictionary() const {
-        return dict_;
+        return *dict_;
     }
 
     void stack_trie::print_debug() const {
@@ -67,7 +74,7 @@ namespace yznal::trace_collector {
             level_size--;
 
             const node& node = nodes_[node_id];
-            std::cout << "[" << dict_.decode(node.current_method) << "," << node.sample_count << "]";
+            std::cout << "[" << dict_->decode(node.current_method) << "," << node.sample_count << "]";
             for (const auto& [k, v] : node.children_) {
                 bfs.push(v);
             }
