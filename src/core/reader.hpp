@@ -11,8 +11,6 @@ namespace yznal::trace_collector {
     class fifo_reader {
     public:
         
-        // todo: separator?
-        fifo_reader(const char* fifo_name, consumer* consumer_func, size_t buffer_size = 4096) noexcept;
 
         fifo_reader(int fd, consumer* consumer_func, size_t buffer_size = 4096) noexcept;
 
@@ -22,8 +20,6 @@ namespace yznal::trace_collector {
 
         fifo_reader(fifo_reader&&) = default;
         fifo_reader& operator=(fifo_reader&&) = default;
-
-        ~fifo_reader();
 
         void process();
 
@@ -36,7 +32,6 @@ namespace yznal::trace_collector {
 
         consumer* consumer_func_;
         int read_fd_ = -1;
-        const char* filename_;
         std::vector<char> buffer_;
 
 

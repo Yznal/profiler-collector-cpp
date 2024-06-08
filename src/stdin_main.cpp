@@ -1,8 +1,8 @@
 #include <iostream>
 
-#include "reader.hpp"
-#include "parser/trace_parser.hpp"
-#include "stack_trie.hpp"
+#include "core/reader.hpp"
+#include "core/trace_parser.hpp"
+#include "core/stack_trie.hpp"
 
 #include <sys/stat.h>
 #include <fcntl.h>

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "parser/trace_parser.hpp"
+#include "trace_parser.hpp"
 
 #include <vector>
 #include <string>
