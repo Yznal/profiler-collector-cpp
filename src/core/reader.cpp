@@ -8,7 +8,7 @@
 
 namespace yznal::trace_collector {
 
-    fifo_reader::fifo_reader(int fd, consumer* consumer_func, size_t buffer_size) noexcept : consumer_func_(consumer_func), read_fd_(fd), buffer_(buffer_size) {
+    fifo_reader::fifo_reader(int fd, std::function<void(std::string&&)> consumer_func, size_t buffer_size) noexcept : consumer_func_(std::move(consumer_func)), read_fd_(fd), buffer_(buffer_size) {
     }
 
     void fifo_reader::process() {
@@ -42,9 +42,10 @@ namespace yznal::trace_collector {
                     // buffer full
                     // resize
                     buffer_.reserve(buffer_.capacity() * 2);
+                    buf = buffer_.data();
                 } else {
                     size_t sz = end - start;
-                    strncpy(buf, &buf[start], sz);
+                    memmove(buf, &buf[start], sz);
                     start = 0;
                     end = sz;
                 }

@@ -64,8 +64,21 @@ namespace yznal::trace_collector {
         }
     }
 
+    method_dict& stack_trie::get_dictionary() {
+        return *dict_;
+    }
+
     const method_dict& stack_trie::get_dictionary() const {
         return *dict_;
+    }
+
+    const std::vector<stack_trie::node>& stack_trie::get_nodes() const {
+        return nodes_;
+    }
+
+    void stack_trie::clear_invocations() {
+        for (auto& node : nodes_)
+            node.sample_count = 0;
     }
 
     void stack_trie::print_debug() const {

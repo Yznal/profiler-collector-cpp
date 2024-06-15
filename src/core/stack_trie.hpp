@@ -28,8 +28,7 @@ namespace yznal::trace_collector {
 
 
     class stack_trie {
-    private:
-
+    public:
         static inline const std::string ROOT = "[stack_trace_root]";
 
         struct node {
@@ -43,14 +42,16 @@ namespace yznal::trace_collector {
             uint64_t sample_count;
         };
 
-
-    public:
-
         stack_trie();
         explicit stack_trie(std::shared_ptr<method_dict>);
 
         void add_stacktrace(const stacktrace& trace_sample, int offset = 0);
+        method_dict& get_dictionary();
         const method_dict& get_dictionary() const;
+        //const std::vector<node>& get_nodes();
+        const std::vector<node>& get_nodes() const;
+
+        void clear_invocations();
 
         void print_debug() const;
 

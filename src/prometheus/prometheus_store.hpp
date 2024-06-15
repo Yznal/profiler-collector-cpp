@@ -12,16 +12,20 @@
 namespace yznal::trace_collector {
 
 
-    class counter {
+    class metric {
     public:
+        metric(prometheus::Counter* cnt_ptr);
+        metric();
 
-        counter(std::shared_ptr<prometheus::Counter> cnt_ptr);
+        metric(const metric&) = default;
+        metric(metric&&) = default;
 
-        void increment(size_t value) ;
+        void increment(size_t value);
+        void reset();
 
 
     private:
-        std::weak_ptr<prometheus::Counter> cnt_;
+        prometheus::Counter* cnt_;
     };
 
     class prometheus_store {
@@ -29,13 +33,15 @@ namespace yznal::trace_collector {
 
         prometheus_store();
 
-        counter get_or_create_counter(const std::string& caller, const std::string& callee);
+        metric create_counter(const std::string& caller, const std::string& callee, int level);
+
+        metric get_or_create_counter(const std::string& caller, const std::string& callee);
 
     private:
         std::shared_ptr<prometheus::Registry> registry_;
         prometheus::Exposer exposer_;
-        std::function<prometheus::Counter*(const std::string&, const std::string&)> counter_factory_;
-        std::unordered_map<std::string, std::unordered_map<std::string, std::shared_ptr<prometheus::Counter>>> counters_;
+        std::function<prometheus::Counter*(const prometheus::Labels&)> Counter_factory_;
+        std::unordered_map<std::string, std::unordered_map<std::string, prometheus::Counter*>> counters_;
 
     };
     
