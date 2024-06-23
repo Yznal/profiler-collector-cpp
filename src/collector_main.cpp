@@ -44,8 +44,64 @@ static int start_profiler(arguments& args) {
     sprintf(pid, "%d", args.java_pid);
     //char* argv[] = {"-o", "collapsed", "-d", dur, pid, NULL};
 
-    return execl(args.aync_profiler.c_str(), "_filler_", "-e", "wall", "-d", dur, "-i", "10ms", "-o", "collapsed", pid, NULL);
+    return execl(args.aync_profiler.c_str(), "_filler_", "-e", "wall", "-d", dur, "-i", "10ms", "-o", "collapsed", "-t", pid, NULL);
 }
+static void render_metrics(node_id node_idx, const stack_trie &trie, std::shared_ptr<method_dict> dict, std::map<uint64_t, metric> &counter_cache, prometheus_store &prom) {
+        method_id target_id = trie.get_nodes()[node_idx].current_method;
+        size_t target_total = trie.get_nodes()[node_idx].sample_count;
+        int level = 1;
+        std::queue<std::pair<node_id, int>> traverse_buffer;
+        traverse_buffer.push( {node_idx, 0});
+        std::string caller = dict->decode(target_id);
+
+        while (!traverse_buffer.empty() && level <= MAX_LEVEL) {
+            size_t level_total = target_total;
+            size_t level_count = traverse_buffer.size();
+
+            for (size_t i = 0; i < level_count; i++) {
+                node_id parent_id = traverse_buffer.front().first;
+                int synthetic_count = traverse_buffer.front().second;
+                traverse_buffer.pop();
+                auto& parent_node = trie.get_nodes()[parent_id];
+                size_t parent_total = synthetic_count > 0 ? synthetic_count : parent_node.sample_count;
+                if (synthetic_count == 0) { // non-synthetic
+                    for (const auto& [method_id, node_id] : parent_node.children_) {
+                        
+                        auto& submethod_node = trie.get_nodes()[node_id];
+                        uint64_t counter_key = (static_cast<uint64_t>(level) << 56) | (static_cast<uint64_t>(target_id) << 31) | (submethod_node.current_method);
+                        if (!counter_cache.contains(counter_key)) {
+                            std::string callee = dict->decode(submethod_node.current_method);
+                            counter_cache.insert(std::make_pair(counter_key, prom.create_counter(caller, callee, level)));
+                        }
+                        
+                        // todo filter zero?
+                        counter_cache[counter_key].reset();
+                        counter_cache[counter_key].increment(submethod_node.sample_count);
+                        parent_total -= submethod_node.sample_count;
+                        level_total -= submethod_node.sample_count;
+
+
+                        traverse_buffer.push( {node_id, 0} );
+                    }
+                }
+
+                if (parent_total > 0) { // synthetic
+                    traverse_buffer.push({ parent_id, parent_total});
+                    uint64_t counter_key = (static_cast<uint64_t>(level) << 56) | (static_cast<uint64_t>(target_id) << 31) | (parent_node.current_method);
+                    if (!counter_cache.contains(counter_key)) {
+                        const std::string& callee = dict->decode(parent_node.current_method);
+                        counter_cache.insert(std::make_pair(counter_key, prom.create_counter(caller, callee, level)));
+                    }
+                    counter_cache[counter_key].reset();
+                    counter_cache[counter_key].increment(parent_total);
+
+                    level_total -= parent_total;
+                }
+            }
+
+            level++;
+        }
+    };
 
 static void event_loop(arguments args) {
     prometheus_store prom;
@@ -58,9 +114,9 @@ static void event_loop(arguments args) {
     method_id target_id = dict->encode(method);
     node_id node_idx = -1;
     std::ofstream journal("journal.txt");
-    auto refill = [&trie, &method, &journal](std::string&& str) {
+    auto refill = [&trie, &method, &journal](const std::string& str) {
         journal << str << '\n';
-        stacktrace trace = parse_line(str);
+        stacktrace trace = parse_line(str, true);
         int idx = 0;
         for (const std::string& frame : trace.stack) {
             if (frame == method) {
@@ -73,7 +129,8 @@ static void event_loop(arguments args) {
         }
     };
 
-    fifo_reader reader(STDIN_FILENO, std::function<void(std::string&&)>(refill));
+
+    fifo_reader reader(STDIN_FILENO, std::function<void(const std::string&)>(refill));
 
     while (enabled) {
         int pfd[2];
@@ -115,60 +172,7 @@ static void event_loop(arguments args) {
             
             // bfs
             if (node_idx != -1) {
-                size_t target_total = trie.get_nodes()[node_idx].sample_count;
-                int level = 1;
-                std::queue<std::pair<node_id, int>> traverse_buffer;
-                traverse_buffer.push( {node_idx, 0});
-                std::string caller = dict->decode(target_id);
-
-                while (!traverse_buffer.empty() && level <= MAX_LEVEL) {
-                    size_t level_total = target_total;
-                    size_t level_count = traverse_buffer.size();
-
-                    for (size_t i = 0; i < level_count; i++) {
-                        node_id parent_id = traverse_buffer.front().first;
-                        int synthetic_count = traverse_buffer.front().second;
-                        traverse_buffer.pop();
-                        auto& parent_node = trie.get_nodes()[parent_id];
-                        size_t parent_total = synthetic_count > 0 ? synthetic_count : parent_node.sample_count;
-                        if (synthetic_count == 0) { // non-synthetic
-                            for (const auto& [method_id, node_id] : parent_node.children_) {
-                                
-                                auto& submethod_node = trie.get_nodes()[node_id];
-                                uint64_t counter_key = (static_cast<uint64_t>(level) << 56) | (static_cast<uint64_t>(target_id) << 31) | (submethod_node.current_method);
-                                if (!counter_cache.contains(counter_key)) {
-                                    std::string callee = dict->decode(submethod_node.current_method);
-                                    counter_cache.insert(std::make_pair(counter_key, prom.create_counter(caller, callee, level)));
-                                }
-                                
-                                // todo filter zero?
-                                counter_cache[counter_key].reset();
-                                counter_cache[counter_key].increment(submethod_node.sample_count);
-                                parent_total -= submethod_node.sample_count;
-                                level_total -= submethod_node.sample_count;
-
-
-                                traverse_buffer.push( {node_id, 0} );
-                            }
-                        }
-
-                        if (parent_total > 0) { // synthetic
-                            traverse_buffer.push({ parent_id, parent_total});
-                            uint64_t counter_key = (static_cast<uint64_t>(level) << 56) | (static_cast<uint64_t>(target_id) << 31) | (parent_node.current_method);
-                            if (!counter_cache.contains(counter_key)) {
-                                const std::string& callee = dict->decode(parent_node.current_method);
-                                counter_cache.insert(std::make_pair(counter_key, prom.create_counter(caller, callee, level)));
-                            }
-                            counter_cache[counter_key].reset();
-                            counter_cache[counter_key].increment(parent_total);
-
-                            level_total -= parent_total;
-                        }
-                    }
-
-                    level++;
-                }
-
+                render_metrics(target_id, trie, dict, counter_cache, prom);
 
             }
             
