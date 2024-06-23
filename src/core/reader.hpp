@@ -11,7 +11,7 @@ class fifo_reader {
     public:
         
 
-        fifo_reader(int fd, std::function<void(std::string&&)> consumer_func, size_t buffer_size = 4096) noexcept;
+        fifo_reader(int fd, std::function<void(const std::string&)> consumer_func, size_t buffer_size = 4096) noexcept;
 
         // no cpy, single resource owner
         fifo_reader(const fifo_reader&) = delete;
@@ -29,7 +29,7 @@ class fifo_reader {
         void close();
         void open();
 
-        std::function<void(std::string&&)> consumer_func_;
+        std::function<void(const std::string&)> consumer_func_;
         int read_fd_ = -1;
         std::vector<char> buffer_;
 

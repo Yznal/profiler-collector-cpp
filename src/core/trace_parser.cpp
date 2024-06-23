@@ -1,6 +1,7 @@
 #include "trace_parser.hpp"
 
 #include <string>
+#include <iostream>
 
 namespace yznal::trace_collector {
 
@@ -11,6 +12,9 @@ namespace yznal::trace_collector {
         stacktrace info;
 
         ptrdiff_t sep_pos = line.find_last_of(' ');
+        if (static_cast<size_t>(sep_pos) == std::string::npos) {
+            std::cerr << "Incorrect line: " << line;
+        }
         size_t num = std::stoll(line.data() + sep_pos + 1);
         info.count = num;    
 
