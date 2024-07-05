@@ -35,13 +35,6 @@ namespace yznal::trace_collector {
         return metric { Counter_factory_({{"caller", caller}, {"callee", callee}, {"depth", std::to_string(level)}}) };
     }
 
-    metric prometheus_store::get_or_create_counter(const std::string& caller, const std::string& callee) {
-        if (!counters_.contains(caller) || !counters_[caller].contains(callee)) {
-            counters_[caller][callee] = Counter_factory_({{"caller", caller}, {"callee", callee}});
-        }
-        return metric {counters_[caller][callee]};
-    }
-
     
 }
 

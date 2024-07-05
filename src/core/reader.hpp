@@ -22,6 +22,8 @@ class fifo_reader {
 
         void process();
 
+        void skip_input();
+
         bool is_open() const;
 
     private:

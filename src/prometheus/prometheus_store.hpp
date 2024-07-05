@@ -5,7 +5,6 @@
 #include <prometheus/registry.h>
 
 #include <string>
-#include <unordered_map>
 #include <memory>
 #include <functional>
 
@@ -35,13 +34,10 @@ namespace yznal::trace_collector {
 
         metric create_counter(const std::string& caller, const std::string& callee, int level);
 
-        metric get_or_create_counter(const std::string& caller, const std::string& callee);
-
     private:
         std::shared_ptr<prometheus::Registry> registry_;
         prometheus::Exposer exposer_;
         std::function<prometheus::Counter*(const prometheus::Labels&)> Counter_factory_;
-        std::unordered_map<std::string, std::unordered_map<std::string, prometheus::Counter*>> counters_;
 
     };
     
