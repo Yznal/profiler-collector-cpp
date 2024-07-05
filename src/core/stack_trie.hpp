@@ -13,7 +13,7 @@
 namespace yznal::trace_collector {
 
     using method_id = int32_t;
-    using node_id = uint32_t;
+    using node_id = int32_t;
 
     class method_dict {
     public:

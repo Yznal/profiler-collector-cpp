@@ -18,13 +18,6 @@ namespace yznal::trace_collector {
         char* buf = buffer_.data();
         size_t b_size = buffer_.capacity();
 
-        // std::string line;
-        
-        // read(read_fd_, buf, 0);
-        // while (std::getline(std::cin, line)) {
-        //     consumer_func_(line);
-        // }
-
         while ((rd = read(read_fd_, buf + end, b_size - end)) > 0) {
             size_t border = end + rd < b_size ? end + rd : b_size;
             while (end < border) {
@@ -66,6 +59,16 @@ namespace yznal::trace_collector {
         if (end > start) {
             std::string st(&buf[start], end - start);
             consumer_func_(std::move(st)); 
+        }
+    }
+
+    void fifo_reader::skip_input() {
+        ssize_t rd;
+        char buffer[4096];
+        size_t b_size = 4096;
+
+        while ((rd = read(read_fd_, &buffer, b_size)) > 0) {
+            continue;
         }
     }
 

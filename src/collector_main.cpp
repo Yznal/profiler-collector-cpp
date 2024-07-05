@@ -1,25 +1,28 @@
 #include <csignal>
+#include <cstring>
 #include <chrono>
 #include <thread>
 #include <iostream>
-#include <fstream>
-#include <queue>
 #include <unistd.h>
 #include <sys/stat.h>
 
-#include "prometheus/prometheus_store.hpp"
-#include "core/reader.hpp"
-#include "core/stack_trie.hpp"
-#include "core/trace_parser.hpp"
+#include "collector.hpp"
 
 
 using namespace yznal::trace_collector;
 
 std::sig_atomic_t enabled = true;
 
-// todo actual args
 static int PROFILE_DURATION = 13;
-static int MAX_LEVEL = 3;
+
+static const char* PROMPT = 
+    "Usage: collector [-i <interval>] -p <pid> -m <method> -b <profiler_binary>\n"
+    "  -i               profiling intervals in milliseconds\n"
+    "  -p | --pid       java process id\n"
+    "  -m | --method    method to profile\n"
+    "  -b | --binary    async-profiler binary path\n"
+    "\n"
+    "Example: collector -p 1234 -b async-profiler/build/bin/asprof -m org/yznal/profilingdemo/Common.doStuff -i 10\n";
 
 static void errexit(const char* msg) {
     std::cerr << msg << '\n';
@@ -27,13 +30,15 @@ static void errexit(const char* msg) {
 }
 
 struct arguments {
-    std::string aync_profiler;
     int java_pid;
+    std::string aync_profiler;
+    std::string target_method;
+    int period_ms;
 };
 
 
-
 void sigint_handler(int signal) {
+    (void) signal;
     enabled = false;
 }
 
@@ -42,95 +47,17 @@ static int start_profiler(arguments& args) {
     sprintf(dur, "%d", PROFILE_DURATION);
     char pid[10];
     sprintf(pid, "%d", args.java_pid);
+    char period[13];
+    int ms = args.period_ms < 0 ? 10 : args.period_ms;
+    sprintf(period, "%dms", ms);
     //char* argv[] = {"-o", "collapsed", "-d", dur, pid, NULL};
 
-    return execl(args.aync_profiler.c_str(), "_filler_", "-e", "wall", "-d", dur, "-i", "10ms", "-o", "collapsed", "-t", pid, NULL);
+    return execl(args.aync_profiler.c_str(), "async-profiler", "-e", "wall", "-d", dur, "-i", period, "-o", "collapsed", pid, NULL);
 }
-static void render_metrics(node_id node_idx, const stack_trie &trie, std::shared_ptr<method_dict> dict, std::map<uint64_t, metric> &counter_cache, prometheus_store &prom) {
-        method_id target_id = trie.get_nodes()[node_idx].current_method;
-        size_t target_total = trie.get_nodes()[node_idx].sample_count;
-        int level = 1;
-        std::queue<std::pair<node_id, int>> traverse_buffer;
-        traverse_buffer.push( {node_idx, 0});
-        std::string caller = dict->decode(target_id);
-
-        while (!traverse_buffer.empty() && level <= MAX_LEVEL) {
-            size_t level_total = target_total;
-            size_t level_count = traverse_buffer.size();
-
-            for (size_t i = 0; i < level_count; i++) {
-                node_id parent_id = traverse_buffer.front().first;
-                int synthetic_count = traverse_buffer.front().second;
-                traverse_buffer.pop();
-                auto& parent_node = trie.get_nodes()[parent_id];
-                size_t parent_total = synthetic_count > 0 ? synthetic_count : parent_node.sample_count;
-                if (synthetic_count == 0) { // non-synthetic
-                    for (const auto& [method_id, node_id] : parent_node.children_) {
-                        
-                        auto& submethod_node = trie.get_nodes()[node_id];
-                        uint64_t counter_key = (static_cast<uint64_t>(level) << 56) | (static_cast<uint64_t>(target_id) << 31) | (submethod_node.current_method);
-                        if (!counter_cache.contains(counter_key)) {
-                            std::string callee = dict->decode(submethod_node.current_method);
-                            counter_cache.insert(std::make_pair(counter_key, prom.create_counter(caller, callee, level)));
-                        }
-                        
-                        // todo filter zero?
-                        counter_cache[counter_key].reset();
-                        counter_cache[counter_key].increment(submethod_node.sample_count);
-                        parent_total -= submethod_node.sample_count;
-                        level_total -= submethod_node.sample_count;
-
-
-                        traverse_buffer.push( {node_id, 0} );
-                    }
-                }
-
-                if (parent_total > 0) { // synthetic
-                    traverse_buffer.push({ parent_id, parent_total});
-                    uint64_t counter_key = (static_cast<uint64_t>(level) << 56) | (static_cast<uint64_t>(target_id) << 31) | (parent_node.current_method);
-                    if (!counter_cache.contains(counter_key)) {
-                        const std::string& callee = dict->decode(parent_node.current_method);
-                        counter_cache.insert(std::make_pair(counter_key, prom.create_counter(caller, callee, level)));
-                    }
-                    counter_cache[counter_key].reset();
-                    counter_cache[counter_key].increment(parent_total);
-
-                    level_total -= parent_total;
-                }
-            }
-
-            level++;
-        }
-    };
 
 static void event_loop(arguments args) {
-    prometheus_store prom;
-    std::map<uint64_t, metric> counter_cache;
 
-    std::shared_ptr<method_dict> dict(new method_dict());
-    stack_trie trie(dict);
-
-    std::string method = "org/yznal/profilingdemo/Common.doStuff";
-    method_id target_id = dict->encode(method);
-    node_id node_idx = -1;
-    std::ofstream journal("journal.txt");
-    auto refill = [&trie, &method, &journal](const std::string& str) {
-        journal << str << '\n';
-        stacktrace trace = parse_line(str, true);
-        int idx = 0;
-        for (const std::string& frame : trace.stack) {
-            if (frame == method) {
-                break;
-            }
-            idx++;
-        }
-        if (idx != trace.stack.size()) {
-            trie.add_stacktrace(trace, idx);
-        }
-    };
-
-
-    fifo_reader reader(STDIN_FILENO, std::function<void(const std::string&)>(refill));
+    collector collector(args.target_method);
 
     while (enabled) {
         int pfd[2];
@@ -155,30 +82,9 @@ static void event_loop(arguments args) {
             close(pfd[1]);
             dup2(pfd[0], STDIN_FILENO);
 
-            reader.process();
+            collector.process_profile_batch();
 
-            if (node_idx == -1) {
-                int idx = 0;
-                for (auto& node : trie.get_nodes()) {
-                    if (node.current_method == target_id) {
-                        node_idx = idx;
-                        break;
-                    }
-                    idx++;
-                }
-            }
-
-            auto& nodess = trie.get_nodes();
-            
-            // bfs
-            if (node_idx != -1) {
-                render_metrics(target_id, trie, dict, counter_cache, prom);
-
-            }
-            
-            //trie.print_debug();
             close(pfd[0]);
-            trie.clear_invocations();
         }
         
         if (enabled) {
@@ -189,7 +95,58 @@ static void event_loop(arguments args) {
     } // while enabled
 
     std::cerr << "exit\n";
-    std::this_thread::sleep_for(std::chrono::seconds(10));
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+}
+
+static arguments parse_arguments(int argc, char** argv) {
+    int pid = -1;
+    char* method = nullptr;
+    char* binary = nullptr;
+    int interval = -1;
+
+    for (int arg = 1; arg < argc; arg += 2) {
+        if (strcmp(argv[arg], "-p") == 0 || strcmp(argv[arg], "--pid") == 0) {
+            if (arg+1 >= argc)
+                errexit("No argument for pid");
+            pid = std::stoi(argv[arg+1]);
+        } else if (strcmp(argv[arg], "-m") == 0 || strcmp(argv[arg], "--method") == 0) {
+            if (arg+1 >= argc)
+                errexit("No argument for method");
+            method = argv[arg+1];
+        } else if (strcmp(argv[arg], "-b") == 0 || strcmp(argv[arg], "--binary") == 0) {
+            if (arg+1 >= argc)
+                errexit("No argument for binary");
+            binary = argv[arg+1];
+        } else if (strcmp(argv[arg], "-i") == 0) {
+            if (arg+1 >= argc)
+                errexit("No argument for interval");
+            interval = std::stoi(argv[arg+1]);
+        } else {
+            std::cerr << "Unexpected argument " << argv[arg] << '\n';
+            errexit(PROMPT);
+        }
+    }
+
+    if (pid == -1) {
+        std::cerr << "PID not provided";
+        errexit(PROMPT);
+    }
+    if (method == nullptr) {
+        std::cerr << "method not provided";
+        errexit(PROMPT);
+    }
+    if (binary == nullptr) {
+        std::cerr << "binary path not provided";
+        errexit(PROMPT);
+    } 
+    
+
+    return {
+        pid, 
+        binary,
+        method,
+        interval
+        };
 
 }
 
@@ -199,7 +156,7 @@ int main(int argc, char** argv) {
     
     signal(SIGINT, sigint_handler);
 
-    arguments args {argv[1], atoi(argv[2])};
+    arguments args = parse_arguments(argc, argv);
 
     auto collector_thread = std::thread(event_loop, args);
 
